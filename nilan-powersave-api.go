@@ -49,6 +49,12 @@ type Config struct {
 	StopHeatTemperatureDifference int  `json:"stopHeatTemperatureDifference"`
 }
 
+type PriceData struct {
+	HourlyPrices      []float64 `json:"hourlyPrices"`
+	LowestPriceHours  []int     `json:"lowestPriceHours"`
+	LowestPriceValues []float64 `json:"lowestPriceValues"`
+}
+
 var (
 	mu                            sync.Mutex
 	isAutoSavePowerMode           bool
@@ -56,11 +62,13 @@ var (
 	mustHeatTemperatureDifference int
 	stopHeatTemperatureDifference int
 	apiBaseURL                    = "http://localhost:8082"
+	lastPriceData                 PriceData
 )
 
 func initLogger() {
 	log.SetOutput(&lumberjack.Logger{
-		Filename:   "/home/kevin/nilan-log/nilanlogfile" + time.Now().Format("2006-01-02") + ".log",
+		//Filename:   "/home/kevin/nilan-log/nilanlogfile" + time.Now().Format("2006-01-02") + ".log",
+		Filename:   "log/nilanlogfile" + time.Now().Format("2006-01-02") + ".log",
 		MaxSize:    10, // MB
 		MaxBackups: 3,
 		MaxAge:     28, // days
@@ -71,7 +79,8 @@ func initLogger() {
 
 func loadConfig() error {
 	viper.SetConfigName("config")
-	viper.AddConfigPath("/home/kevin/nilan-hk")
+	//viper.AddConfigPath("/home/kevin/nilan-hk")
+	viper.AddConfigPath(".")
 	if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to read config file: %v", err)
 	}
@@ -142,6 +151,8 @@ func nilanController() nilan.Controller {
 	return nilan.Controller{Config: conf}
 }
 
+var runOnce, initialOnce bool = true, true
+
 func autoConfigure(freq time.Duration) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -152,9 +163,9 @@ func autoConfigure(freq time.Duration) {
 	}()
 
 	c := nilanController()
-	var runOnce, initialOnce bool = true, true
-	lowestThreePrices := make([]float64, runHours)
-	lowestThreeHours := make([]int, runHours)
+
+	lowestPrices := make([]float64, runHours)
+	lowestHours := make([]int, runHours)
 
 	for {
 		dt := time.Now()
@@ -163,13 +174,13 @@ func autoConfigure(freq time.Duration) {
 		if (dt.Local().Hour() == 20 && runOnce) || initialOnce {
 			scrapURL := "https://andelenergi.dk/kundeservice/aftaler-og-priser/timepris/"
 			var err error
-			lowestThreeHours, lowestThreePrices, err = GetLowestPriceHours(scrapURL, runHours)
+			lowestHours, lowestPrices, err = GetLowestPriceHours(scrapURL, runHours)
 			if err != nil {
 				log.Printf("Failed to get lowest price hours: %v", err)
 				time.Sleep(freq)
 				continue
 			}
-			log.Printf("Lowest price hours: %v, prices: %v", lowestThreeHours, lowestThreePrices)
+			log.Printf("Lowest price hours: %v, prices: %v", lowestHours, lowestPrices)
 			runOnce = false
 		} else if dt.Local().Hour() != 20 {
 			runOnce = true
@@ -191,7 +202,7 @@ func autoConfigure(freq time.Duration) {
 
 		inHoursHeating := false
 		for i := 0; i < runHours; i++ {
-			if lowestThreeHours[i] == dt.Local().Hour() {
+			if lowestHours[i] == dt.Local().Hour() {
 				inHoursHeating = true
 				break
 			}
@@ -252,11 +263,12 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 	}
 
 	c := colly.NewCollector()
-	minValue := make([]float64, runHours)
-	minHour := make([]int, runHours)
+	minvalue := make([]float64, runHours)
+	minhour := make([]int, runHours)
+	hourlyPrices := make([]float64, 24)
 	for i := 0; i < runHours; i++ {
-		minValue[i] = 9999
-		minHour[i] = -1
+		minvalue[i] = 9999
+		minhour[i] = -1
 	}
 
 	c.OnHTML("div#chart-component", func(e *colly.HTMLElement) {
@@ -271,58 +283,125 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 			log.Println("Invalid price data: insufficient dates or values")
 			return
 		}
+		if strings.TrimSpace(str.East.Dates[len(str.East.Dates)-1].Day) == strconv.Itoa(time.Now().Day()) {
+			for i := 0; i < runHours; i++ {
+				for j := 0; j < 24; j++ {
+					hasCompared := false
+					for k := 0; k <= i; k++ {
+						if j >= 0 && j < 4 {
+							if j+20 == minhour[k] {
+								hasCompared = true
+							}
+						} else {
+							if j-4 == minhour[k] {
+								hasCompared = true
+							}
+						}
 
-		dayStr := strings.TrimSpace(str.East.Dates[len(str.East.Dates)-1].Day)
-		day, err := strconv.Atoi(dayStr)
-		if err != nil {
-			log.Printf("Invalid day format: %s", dayStr)
-			return
-		}
+					}
+					if !hasCompared {
+						s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
+						ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
 
-		offset := -28
-		if day == time.Now().Day()+1 && time.Now().Local().Hour() < 20 {
-			offset = -52
-		} else if day != time.Now().Day() && day != time.Now().Day()+1 {
-			log.Printf("Price data day %d does not match current day %d or next day", day, time.Now().Day())
-			return
-		}
+						s1 = s1 + ete
+						if s1 < minvalue[i] {
+							if j >= 0 && j < 4 {
+								minvalue[i] = s1
+								minhour[i] = j + 20
+							} else {
+								minvalue[i] = s1
+								minhour[i] = j - 4
+							}
+						}
+					}
 
-		for i := 0; i < runHours; i++ {
-			for j := 0; j < 24; j++ {
-				hasCompared := false
-				for k := 0; k <= i; k++ {
-					if minHour[k] == (j-4+24)%24 {
-						hasCompared = true
-						break
+				}
+
+			}
+		} else if strings.TrimSpace(str.East.Dates[len(str.East.Dates)-1].Day) == strconv.Itoa(time.Now().Day()+1) {
+			if time.Now().Local().Hour() < 20 {
+				for i := 0; i < runHours; i++ {
+					for j := 0; j < 24; j++ {
+						hasCompared := false
+						for k := 0; k <= i; k++ {
+							if j >= 0 && j < 4 {
+								if j+20 == minhour[k] {
+									hasCompared = true
+								}
+							} else {
+								if j-4 == minhour[k] {
+									hasCompared = true
+								}
+							}
+						}
+						if !hasCompared {
+							s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-52+j], 64)
+							ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-52+j], 64) // add transport expense
+							s1 = s1 + ete
+							if s1 < minvalue[i] {
+								if j >= 0 && j < 4 {
+									minvalue[i] = s1
+									minhour[i] = j + 20
+								} else {
+									minvalue[i] = s1
+									minhour[i] = j - 4
+								}
+
+							}
+						}
+
+					}
+
+				}
+			} else {
+				for i := 0; i < runHours; i++ {
+					for j := 0; j < 24; j++ {
+						hasCompared := false
+
+						if j <= 23 && j >= 4 {
+							for k := 0; k <= i; k++ {
+								if j-4 == minhour[k] {
+									hasCompared = true
+								}
+							}
+							if !hasCompared {
+								s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
+								ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
+								s1 = s1 + ete
+								if s1 < minvalue[i] {
+									minvalue[i] = s1
+									minhour[i] = j - 4
+								}
+							}
+						} else {
+							for k := 0; k <= i; k++ {
+								if j+20 == minhour[k] {
+									hasCompared = true
+								}
+							}
+							if !hasCompared {
+								s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
+								ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
+								s1 = s1 + ete
+								if s1 < minvalue[i] {
+									minvalue[i] = s1
+									minhour[i] = j + 20
+								}
+							}
+						}
 					}
 				}
-				if hasCompared {
-					continue
-				}
-
-				if len(str.East.Values) <= offset+j || len(str.East.ValuesDistribution) <= offset+j {
-					log.Printf("Invalid index %d for price data", offset+j)
-					continue
-				}
-
-				price, err := strconv.ParseFloat(str.East.Values[offset+j], 64)
-				if err != nil {
-					log.Printf("Failed to parse price at index %d: %v", offset+j, err)
-					continue
-				}
-				transport, err := strconv.ParseFloat(str.East.ValuesDistribution[offset+j], 64)
-				if err != nil {
-					log.Printf("Failed to parse transport at index %d: %v", offset+j, err)
-					continue
-				}
-
-				totalPrice := price + transport
-				if totalPrice < minValue[i] {
-					minValue[i] = totalPrice
-					minHour[i] = (j - 4 + 24) % 24
-				}
 			}
+
 		}
+
+		mu.Lock()
+		lastPriceData = PriceData{
+			HourlyPrices:      hourlyPrices,
+			LowestPriceHours:  minhour,
+			LowestPriceValues: minvalue,
+		}
+		mu.Unlock()
 	})
 
 	c.OnRequest(func(r *colly.Request) {
@@ -336,11 +415,23 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 		return nil, nil, fmt.Errorf("failed to visit %s: %v", scrapURL, err)
 	}
 
-	if minHour[0] == -1 {
+	if minhour[0] == -1 {
 		return nil, nil, fmt.Errorf("no valid price data found")
 	}
 
-	return minHour, minValue, nil
+	return minhour, minvalue, nil
+}
+
+func getPrices(c *gin.Context) {
+	log.Printf("Processing prices GET request from %v", c.Request.RemoteAddr)
+	mu.Lock()
+	data := lastPriceData
+	mu.Unlock()
+	if len(data.HourlyPrices) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No price data available"})
+		return
+	}
+	c.JSON(http.StatusOK, data)
 }
 
 // CORS Middleware
@@ -457,7 +548,7 @@ func updateConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload config"})
 		return
 	}
-
+	initialOnce = true
 	c.JSON(http.StatusOK, gin.H{"message": "Config updated successfully"})
 }
 
@@ -485,6 +576,7 @@ func main() {
 	router.PUT("/settings", updateSettings)
 	router.GET("/config", getConfig)
 	router.PUT("/config", updateConfig)
+	router.GET("/prices", getPrices)
 
 	log.Println("Listening at :8082...")
 	if err := router.Run(":8082"); err != nil {
