@@ -6,7 +6,6 @@
     <title>Nilan Control Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Arial', sans-serif; }
         #priceChart { max-height: 300px; }
@@ -15,6 +14,13 @@
 <body class="bg-gray-100 p-6">
     <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
         <h1 class="text-2xl font-bold mb-4">Nilan Control Panel</h1>
+
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold mb-2">Electricity Prices</h2>
+
+            <canvas id="priceChart"></canvas>
+            <p id="price-message" class="mt-2 text-sm text-red-600 hidden"></p>
+        </div>
 
         <div class="mb-6">
             <h2 class="text-xl font-semibold mb-2">Readings</h2>
@@ -113,44 +119,7 @@
     </div>
 
     <script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-            return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-                try {
-                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                    var firstSheetName = workbook.SheetNames[0];
-                    var worksheet = workbook.Sheets[firstSheetName];
-
-                    // Convert sheet to JSON to filter blank rows
-                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                    // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                    var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                    // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                    var headerRowIndex = filteredData.findIndex((row, index) =>
-                        row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                    );
-                    // Fallback
-                    if (headerRowIndex === -1 || headerRowIndex > 25) {
-                        headerRowIndex = 0;
-                    }
-
-                    // Convert filtered JSON back to CSV
-                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
-                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                    return csv;
-                } catch (e) {
-                    console.error(e);
-                    return "";
-                }
-            }
-            return gk_fileData[filename] || "";
-        }
+       
 
         const apiBaseUrl = 'http://10.0.0.27:8082';
         let priceChart;
@@ -191,8 +160,8 @@
                         borderColor: 'rgba(75, 192, 192, 1)',
                         backgroundColor: 'rgba(75, 192, 192, 0.2)',
                         fill: false,
-                        pointBackgroundColor: labels.map((_, i) => lowestPriceHours.includes(i) ? 'rgba(255, 99, 132, 1)' : 'rgba(75, 192, 192, 1)'),
-                        pointRadius: labels.map((_, i) => lowestPriceHours.includes(i) ? 6 : 4),
+                        pointBackgroundColor: labels.map((_, i) => lowestPriceHours.includes((20 + i) % 24) ? 'rgba(255, 99, 132, 1)' : 'rgba(75, 192, 192, 1)'),
+                        pointRadius: labels.map((_, i) => lowestPriceHours.includes((20 + i) % 24) ? 6 : 4),
                     }]
                 },
                 options: {
@@ -226,7 +195,7 @@
             });
         }
 
-
+        
         async function fetchReadings() {
             try {
                 await sleep(300);
@@ -234,13 +203,13 @@
                 if (!response.ok) throw new Error('Failed to fetch readings');
                 const data = await response.json();
                 document.getElementById('readings').innerHTML = `
-                    <p><strong>Room Temperature:</strong> ${data.RoomTemperature.toFixed(1)} °C</p>
-                    <p><strong>Outdoor Temperature:</strong> ${data.OutdoorTemperature.toFixed(1)} °C</p>
+                    <p><strong>Room Temperature:</strong> ${data.RoomTemperature.toFixed(1)/10} °C</p>
+                    <p><strong>Outdoor Temperature:</strong> ${data.OutdoorTemperature.toFixed(1)/10} °C</p>
                     <p><strong>Average Humidity:</strong> ${data.AverageHumidity} %</p>
                     <p><strong>Actual Humidity:</strong> ${data.ActualHumidity} %</p>
-                    <p><strong>DHW Tank Top Temperature:</strong> ${data.DHWTankTopTemperature.toFixed(1)} °C</p>
-                    <p><strong>DHW Tank Bottom Temperature:</strong> ${data.DHWTankBottomTemperature.toFixed(1)} °C</p>
-                    <p><strong>Supply Flow Temperature:</strong> ${data.SupplyFlowTemperature.toFixed(1)} °C</p>
+                    <p><strong>DHW Tank Top Temperature:</strong> ${data.DHWTankTopTemperature.toFixed(1)/10} °C</p>
+                    <p><strong>DHW Tank Bottom Temperature:</strong> ${data.DHWTankBottomTemperature.toFixed(1)/10} °C</p>
+                    <p><strong>Supply Flow Temperature:</strong> ${data.SupplyFlowTemperature.toFixed(1)/10} °C</p>
                 `;
             } catch (error) {
                 document.getElementById('readings').innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
@@ -254,8 +223,8 @@
                 const data = await response.json();
                 document.getElementById('settings').innerHTML = `
                     <p><strong>Fan Speed:</strong> ${data.FanSpeed}</p>
-                    <p><strong>Desired Room Temperature:</strong> ${data.DesiredRoomTemperature.toFixed(1)} °C</p>
-                    <p><strong>Desired DHW Temperature:</strong> ${data.DesiredDHWTemperature.toFixed(1)} °C</p>
+                    <p><strong>Desired Room Temperature:</strong> ${data.DesiredRoomTemperature.toFixed(1)/10} °C</p>
+                    <p><strong>Desired DHW Temperature:</strong> ${data.DesiredDHWTemperature.toFixed(1)/10} °C</p>
                     <p><strong>DHW Production Paused:</strong> ${data.DHWProductionPaused}</p>
                     <p><strong>DHW Production Pause Duration:</strong> ${data.DHWProductionPauseDuration} days</p>
                     <p><strong>Central Heating Paused:</strong> ${data.CentralHeatingPaused}</p>
@@ -263,11 +232,11 @@
                     <p><strong>Central Heating Is On:</strong> ${data.CentralHeatingIsOn}</p>
                     <p><strong>Ventilation Mode:</strong> ${data.VentilationMode === 0 ? 'Auto' : data.VentilationMode === 1 ? 'Cool' : 'Heat'}</p>
                     <p><strong>Ventilation On Pause:</strong> ${data.VentilationOnPause}</p>
-                    <p><strong>Setpoint Supply Temperature:</strong> ${data.SetpointSupplyTemperature.toFixed(1)} °C</p>
+                    <p><strong>Setpoint Supply Temperature:</strong> ${data.SetpointSupplyTemperature.toFixed(1)/10} °C</p>
                 `;
                 document.getElementById('fanSpeed').value = data.FanSpeed || '';
-                document.getElementById('desiredRoomTemperature').value = data.DesiredRoomTemperature || '';
-                document.getElementById('desiredDHWTemperature').value = data.DesiredDHWTemperature || '';
+                document.getElementById('desiredRoomTemperature').value = data.DesiredRoomTemperature/10 || '';
+                document.getElementById('desiredDHWTemperature').value = data.DesiredDHWTemperature/10 || '';
                 document.getElementById('dhwProductionPaused').checked = data.DHWProductionPaused;
                 document.getElementById('dhwProductionPauseDuration').value = data.DHWProductionPauseDuration || '';
                 document.getElementById('centralHeatingPaused').checked = data.CentralHeatingPaused;
@@ -275,7 +244,7 @@
                 document.getElementById('centralHeatingIsOn').checked = data.CentralHeatingIsOn;
                 document.getElementById('ventilationMode').value = data.VentilationMode || 0;
                 document.getElementById('ventilationOnPause').checked = data.VentilationOnPause;
-                document.getElementById('setpointSupplyTemperature').value = data.SetpointSupplyTemperature || '';
+                document.getElementById('setpointSupplyTemperature').value = data.SetpointSupplyTemperature/10 || '';
             } catch (error) {
                 document.getElementById('settings').innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
             }
@@ -308,8 +277,8 @@
 
             const settings = {
                 FanSpeed: parseInt(document.getElementById('fanSpeed').value) || undefined,
-                DesiredRoomTemperature: parseFloat(document.getElementById('desiredRoomTemperature').value) || undefined,
-                DesiredDHWTemperature: parseFloat(document.getElementById('desiredDHWTemperature').value) || undefined,
+                DesiredRoomTemperature: parseFloat(document.getElementById('desiredRoomTemperature').value*10) || undefined,
+                DesiredDHWTemperature: parseFloat(document.getElementById('desiredDHWTemperature').value*10) || undefined,
                 DHWProductionPaused: document.getElementById('dhwProductionPaused').checked,
                 DHWProductionPauseDuration: parseInt(document.getElementById('dhwProductionPauseDuration').value) || undefined,
                 CentralHeatingPaused: document.getElementById('centralHeatingPaused').checked,
@@ -317,7 +286,7 @@
                 CentralHeatingIsOn: document.getElementById('centralHeatingIsOn').checked,
                 VentilationMode: parseInt(document.getElementById('ventilationMode').value) || undefined,
                 VentilationOnPause: document.getElementById('ventilationOnPause').checked,
-                SetpointSupplyTemperature: parseFloat(document.getElementById('setpointSupplyTemperature').value) || undefined
+                SetpointSupplyTemperature: parseFloat(document.getElementById('setpointSupplyTemperature').value*10) || undefined
             };
 
             try {
@@ -370,16 +339,15 @@
             }
         });
 
-        document.getElementById('priceFile').addEventListener('change', handleFileUpload);
 
         // Fetch data on load and every 10 seconds
         fetchReadings();
         fetchSettings();
         fetchConfig();
         fetchPrices();
-        setInterval(fetchReadings, 60000);
-        setInterval(fetchSettings, 60000);
-        setInterval(fetchConfig, 60000);
+        setInterval(fetchReadings, 10000);
+        setInterval(fetchSettings, 10000);
+        setInterval(fetchConfig, 10000);
         setInterval(fetchPrices, 60000); // Update prices every minute
     </script>
 </body>

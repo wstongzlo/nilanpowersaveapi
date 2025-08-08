@@ -1,11 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,14 +67,23 @@ var (
 )
 
 func initLogger() {
+	if _, err := os.Stat("log"); os.IsNotExist(err) {
+		err := os.Mkdir("log", os.ModePerm)
+		if err != nil {
+			log.Fatalf("failed to create log directory: %v", err)
+		}
+	}
+	ex, _ := os.Executable()
+	logDir := filepath.Join(filepath.Dir(ex), "log")
 	log.SetOutput(&lumberjack.Logger{
-		Filename:   "log/nilanlogfile" + time.Now().Format("2006-01-02") + ".log",
+		Filename:   logDir + "/nilanlogfile" + time.Now().Format("2006-01-02") + ".log",
 		MaxSize:    10, // MB
 		MaxBackups: 3,
 		MaxAge:     28, // days
 		Compress:   true,
 	})
 	log.SetFlags(log.LstdFlags)
+	fmt.Print(logDir)
 }
 
 func loadConfig() error {
@@ -100,48 +110,6 @@ func saveConfig() error {
 	viper.Set("setting.mustheatdf", mustHeatTemperatureDifference)
 	viper.Set("setting.stopheatdf", stopHeatTemperatureDifference)
 	return viper.WriteConfig()
-}
-
-func fetchSettings() (Settings, error) {
-	var settings Settings
-	resp, err := http.Get(apiBaseURL + "/settings")
-	if err != nil {
-		return settings, fmt.Errorf("failed to fetch settings: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return settings, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&settings); err != nil {
-		return settings, fmt.Errorf("failed to parse settings JSON: %v", err)
-	}
-	return settings, nil
-}
-
-func updateHotWaterSettings(settings Settings) error {
-	update := map[string]interface{}{
-		"DHWProductionPaused":        settings.DHWProductionPaused,
-		"DHWProductionPauseDuration": settings.DHWProductionPauseDuration,
-	}
-	data, err := json.Marshal(update)
-	if err != nil {
-		return fmt.Errorf("failed to marshal settings: %v", err)
-	}
-	req, err := http.NewRequest("PUT", apiBaseURL+"/settings", bytes.NewBuffer(data))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send settings: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-	return nil
 }
 
 func nilanController() nilan.Controller {
@@ -191,7 +159,7 @@ func autoConfigure(freq time.Duration) {
 			time.Sleep(freq)
 			continue
 		}
-		s, err := fetchSettings()
+		s, err := c.FetchSettings()
 		if err != nil {
 			log.Printf("Failed to fetch settings: %v", err)
 			time.Sleep(freq)
@@ -208,32 +176,30 @@ func autoConfigure(freq time.Duration) {
 
 		mu.Lock()
 		updateNeeded := false
-		if inHoursHeating || (s.DesiredDHWTemperature-r.DHWTankTopTemperature)/10 >= mustHeatTemperatureDifference {
+		if inHoursHeating || (*s.DesiredDHWTemperature-r.DHWTankTopTemperature)/10 >= mustHeatTemperatureDifference {
 			log.Printf("Enabling hot water: DesiredDHWTemperature=%d, Actual=%d, Paused=%v",
-				s.DesiredDHWTemperature, r.DHWTankTopTemperature, s.DHWProductionPaused)
-			if s.DHWProductionPaused && isAutoSavePowerMode {
-				s.DHWProductionPaused = false
-				s.DHWProductionPauseDuration = 0
+				*s.DesiredDHWTemperature, r.DHWTankTopTemperature, *s.DHWProductionPaused)
+			if *s.DHWProductionPaused && isAutoSavePowerMode {
+				*s.DHWProductionPaused = false
+				*s.DHWProductionPauseDuration = 0
 				updateNeeded = true
 			}
-		} else if (s.DesiredDHWTemperature-r.DHWTankTopTemperature)/10 < stopHeatTemperatureDifference && !s.DHWProductionPaused && isAutoSavePowerMode {
+		} else if (*s.DesiredDHWTemperature-r.DHWTankTopTemperature)/10 < stopHeatTemperatureDifference && !*s.DHWProductionPaused && isAutoSavePowerMode {
 			log.Printf("Pausing hot water: DesiredDHWTemperature=%d, Actual=%d, Paused=%v",
-				s.DesiredDHWTemperature, r.DHWTankTopTemperature, s.DHWProductionPaused)
-			s.DHWProductionPaused = true
-			s.DHWProductionPauseDuration = 180
+				*s.DesiredDHWTemperature, r.DHWTankTopTemperature, *s.DHWProductionPaused)
+			*s.DHWProductionPaused = true
+			*s.DHWProductionPauseDuration = 180
 			updateNeeded = true
 		}
 		if updateNeeded {
-			if err := updateHotWaterSettings(s); err != nil {
-				log.Printf("Failed to update settings: %v", err)
-			} else {
-				log.Printf("Hot water production %s", map[bool]string{true: "paused", false: "enabled"}[s.DHWProductionPaused])
-				c.SendSettings(nilan.Settings{
-					DHWProductionPaused:        &s.DHWProductionPaused,
-					DHWProductionPauseDuration: &s.DHWProductionPauseDuration,
-				})
-			}
+
+			log.Printf("Hot water production %s", map[bool]string{true: "paused", false: "enabled"}[*s.DHWProductionPaused])
+			c.SendSettings(nilan.Settings{
+				DHWProductionPaused:        s.DHWProductionPaused,
+				DHWProductionPauseDuration: s.DHWProductionPauseDuration,
+			})
 		}
+
 		mu.Unlock()
 
 		time.Sleep(freq)
@@ -580,7 +546,7 @@ func main() {
 	router.GET("/config", getConfig)
 	router.PUT("/config", updateConfig)
 	router.GET("/prices", getPrices)
-
+	gin.SetMode(gin.ReleaseMode)
 	log.Println("Listening at :8082...")
 	if err := router.Run(":8082"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
