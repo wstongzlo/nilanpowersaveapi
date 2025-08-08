@@ -67,7 +67,6 @@ var (
 
 func initLogger() {
 	log.SetOutput(&lumberjack.Logger{
-		//Filename:   "/home/kevin/nilan-log/nilanlogfile" + time.Now().Format("2006-01-02") + ".log",
 		Filename:   "log/nilanlogfile" + time.Now().Format("2006-01-02") + ".log",
 		MaxSize:    10, // MB
 		MaxBackups: 3,
@@ -79,7 +78,6 @@ func initLogger() {
 
 func loadConfig() error {
 	viper.SetConfigName("config")
-	//viper.AddConfigPath("/home/kevin/nilan-hk")
 	viper.AddConfigPath(".")
 	if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to read config file: %v", err)
@@ -270,6 +268,9 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 		minvalue[i] = 9999
 		minhour[i] = -1
 	}
+	for i := 0; i < 24; i++ {
+		hourlyPrices[i] = -1
+	}
 
 	c.OnHTML("div#chart-component", func(e *colly.HTMLElement) {
 		priceJson := e.Attr("data-chart")
@@ -283,9 +284,13 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 			log.Println("Invalid price data: insufficient dates or values")
 			return
 		}
-		if strings.TrimSpace(str.East.Dates[len(str.East.Dates)-1].Day) == strconv.Itoa(time.Now().Day()) {
+		if strings.TrimSpace(str.East.Dates[len(str.East.Dates)-1].Day) == strconv.Itoa(time.Now().Day()) { // Only have current day's data
 			for i := 0; i < runHours; i++ {
 				for j := 0; j < 24; j++ {
+					s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
+					ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
+					s1 = s1 + ete
+					hourlyPrices[j] = s1
 					hasCompared := false
 					for k := 0; k <= i; k++ {
 						if j >= 0 && j < 4 {
@@ -300,10 +305,7 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 
 					}
 					if !hasCompared {
-						s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
-						ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
 
-						s1 = s1 + ete
 						if s1 < minvalue[i] {
 							if j >= 0 && j < 4 {
 								minvalue[i] = s1
@@ -318,10 +320,14 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 				}
 
 			}
-		} else if strings.TrimSpace(str.East.Dates[len(str.East.Dates)-1].Day) == strconv.Itoa(time.Now().Day()+1) {
-			if time.Now().Local().Hour() < 20 {
+		} else if strings.TrimSpace(str.East.Dates[len(str.East.Dates)-1].Day) == strconv.Itoa(time.Now().Day()+1) { // Tomorrow's data is available
+			if time.Now().Local().Hour() < 20 { // current time is before 20:00
 				for i := 0; i < runHours; i++ {
 					for j := 0; j < 24; j++ {
+						s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-52+j], 64)
+						ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-52+j], 64) // add transport expense
+						s1 = s1 + ete
+						hourlyPrices[j] = s1
 						hasCompared := false
 						for k := 0; k <= i; k++ {
 							if j >= 0 && j < 4 {
@@ -335,9 +341,7 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 							}
 						}
 						if !hasCompared {
-							s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-52+j], 64)
-							ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-52+j], 64) // add transport expense
-							s1 = s1 + ete
+
 							if s1 < minvalue[i] {
 								if j >= 0 && j < 4 {
 									minvalue[i] = s1
@@ -353,10 +357,14 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 					}
 
 				}
-			} else {
+			} else { // current time is after the 20:00
 				for i := 0; i < runHours; i++ {
 					for j := 0; j < 24; j++ {
 						hasCompared := false
+						s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
+						ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
+						s1 = s1 + ete
+						hourlyPrices[j] = s1
 
 						if j <= 23 && j >= 4 {
 							for k := 0; k <= i; k++ {
@@ -365,9 +373,7 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 								}
 							}
 							if !hasCompared {
-								s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
-								ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
-								s1 = s1 + ete
+
 								if s1 < minvalue[i] {
 									minvalue[i] = s1
 									minhour[i] = j - 4
@@ -380,9 +386,6 @@ func GetLowestPriceHours(scrapURL string, runHours int) ([]int, []float64, error
 								}
 							}
 							if !hasCompared {
-								s1, _ := strconv.ParseFloat(str.East.Values[len(str.East.Values)-28+j], 64)
-								ete, _ := strconv.ParseFloat(str.East.ValuesDistribution[len(str.East.ValuesDistribution)-28+j], 64) // add transport expense
-								s1 = s1 + ete
 								if s1 < minvalue[i] {
 									minvalue[i] = s1
 									minhour[i] = j + 20

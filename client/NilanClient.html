@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nilan Control Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Arial', sans-serif; }
+        #priceChart { max-height: 300px; }
+    </style>
+</head>
+<body class="bg-gray-100 p-6">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold mb-4">Nilan Control Panel</h1>
+
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold mb-2">Readings</h2>
+            <div id="readings" class="bg-gray-50 p-4 rounded-md"></div>
+        </div>
+
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold mb-2">Settings</h2>
+            <div id="settings" class="bg-gray-50 p-4 rounded-md"></div>
+        </div>
+
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold mb-2">Configuration</h2>
+            <div id="config" class="bg-gray-50 p-4 rounded-md"></div>
+        </div>
+
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold mb-2">Update Settings</h2>
+            <form id="settings-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Fan Speed (101-104):</label>
+                    <input type="number" id="fanSpeed" name="FanSpeed" min="101" max="104" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Desired Room Temperature (5-40)°C:</label>
+                    <input type="number" id="desiredRoomTemperature" name="DesiredRoomTemperature" min="5" max="40" step="0.1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Desired DHW Temperature (10-60)°C:</label>
+                    <input type="number" id="desiredDHWTemperature" name="DesiredDHWTemperature" min="10" max="60" step="0.1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">DHW Production Paused:</label>
+                    <input type="checkbox" id="dhwProductionPaused" name="DHWProductionPaused" class="mt-1">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">DHW Production Pause Duration (days):</label>
+                    <input type="number" id="dhwProductionPauseDuration" name="DHWProductionPauseDuration" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Central Heating Paused:</label>
+                    <input type="checkbox" id="centralHeatingPaused" name="CentralHeatingPaused" class="mt-1">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Central Heating Pause Duration (days):</label>
+                    <input type="number" id="centralHeatingPauseDuration" name="CentralHeatingPauseDuration" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Central Heating Is On:</label>
+                    <input type="checkbox" id="centralHeatingIsOn" name="CentralHeatingIsOn" class="mt-1">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Ventilation Mode (0=Auto, 1=Cool, 2=Heat):</label>
+                    <select id="ventilationMode" name="VentilationMode" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        <option value="0">Auto</option>
+                        <option value="1">Cool</option>
+                        <option value="2">Heat</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Ventilation On Pause:</label>
+                    <input type="checkbox" id="ventilationOnPause" name="VentilationOnPause" class="mt-1">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Setpoint Supply Temperature (5-50)°C:</label>
+                    <input type="number" id="setpointSupplyTemperature" name="SetpointSupplyTemperature" min="5" max="50" step="0.1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">Update Settings</button>
+            </form>
+            <p id="settings-message" class="mt-2 text-sm text-red-600 hidden"></p>
+        </div>
+
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold mb-2">Update Configuration</h2>
+            <form id="config-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Auto Save Power Mode:</label>
+                    <input type="checkbox" id="isAutoSavePowerMode" name="isAutoSavePowerMode" class="mt-1">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Run Hours (1-24):</label>
+                    <input type="number" id="runHours" name="runHours" min="1" max="24" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Must Heat Temperature Difference (°C):</label>
+                    <input type="number" id="mustHeatTemperatureDifference" name="mustHeatTemperatureDifference" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Stop Heat Temperature Difference (°C):</label>
+                    <input type="number" id="stopHeatTemperatureDifference" name="stopHeatTemperatureDifference" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">Update Configuration</button>
+            </form>
+            <p id="config-message" class="mt-2 text-sm text-red-600 hidden"></p>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+            return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+                try {
+                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                    var firstSheetName = workbook.SheetNames[0];
+                    var worksheet = workbook.Sheets[firstSheetName];
+
+                    // Convert sheet to JSON to filter blank rows
+                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                    // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                    var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                    // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                    var headerRowIndex = filteredData.findIndex((row, index) =>
+                        row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                    );
+                    // Fallback
+                    if (headerRowIndex === -1 || headerRowIndex > 25) {
+                        headerRowIndex = 0;
+                    }
+
+                    // Convert filtered JSON back to CSV
+                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                    return csv;
+                } catch (e) {
+                    console.error(e);
+                    return "";
+                }
+            }
+            return gk_fileData[filename] || "";
+        }
+
+        const apiBaseUrl = 'http://10.0.0.27:8082';
+        let priceChart;
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function fetchPrices() {
+            try {
+                const response = await fetch(`${apiBaseUrl}/prices`);
+                if (!response.ok) throw new Error('Failed to fetch prices');
+                const data = await response.json();
+                updatePriceChart(data);
+            } catch (error) {
+                document.getElementById('price-message').classList.remove('hidden');
+                document.getElementById('price-message').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function updatePriceChart(data) {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            const labels = Array.from({ length: 24 }, (_, i) => `${(20 + i) % 24}:00`);
+            const prices = data.hourlyPrices.map(price => price >= 0 ? price : null);
+            const lowestPriceHours = data.lowestPriceHours;
+
+            if (priceChart) {
+                priceChart.destroy();
+            }
+
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Electricity Price (DKK/kWh)',
+                        data: prices,
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        fill: false,
+                        pointBackgroundColor: labels.map((_, i) => lowestPriceHours.includes(i) ? 'rgba(255, 99, 132, 1)' : 'rgba(75, 192, 192, 1)'),
+                        pointRadius: labels.map((_, i) => lowestPriceHours.includes(i) ? 6 : 4),
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Price (DKK/kWh)' }
+                        },
+                        x: {
+                            title: { display: true, text: 'Hour of Day' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: true },
+                        annotation: {
+                            annotations: lowestPriceHours.map(hour => ({
+                                type: 'line',
+                                xMin: hour,
+                                xMax: hour,
+                                borderColor: 'rgba(255, 99, 132, 0.5)',
+                                borderWidth: 2,
+                                label: {
+                                    content: 'Low Price',
+                                    enabled: true,
+                                    position: 'top'
+                                }
+                            }))
+                        }
+                    }
+                }
+            });
+        }
+
+
+        async function fetchReadings() {
+            try {
+                await sleep(300);
+                const response = await fetch(`${apiBaseUrl}/readings`);
+                if (!response.ok) throw new Error('Failed to fetch readings');
+                const data = await response.json();
+                document.getElementById('readings').innerHTML = `
+                    <p><strong>Room Temperature:</strong> ${data.RoomTemperature.toFixed(1)} °C</p>
+                    <p><strong>Outdoor Temperature:</strong> ${data.OutdoorTemperature.toFixed(1)} °C</p>
+                    <p><strong>Average Humidity:</strong> ${data.AverageHumidity} %</p>
+                    <p><strong>Actual Humidity:</strong> ${data.ActualHumidity} %</p>
+                    <p><strong>DHW Tank Top Temperature:</strong> ${data.DHWTankTopTemperature.toFixed(1)} °C</p>
+                    <p><strong>DHW Tank Bottom Temperature:</strong> ${data.DHWTankBottomTemperature.toFixed(1)} °C</p>
+                    <p><strong>Supply Flow Temperature:</strong> ${data.SupplyFlowTemperature.toFixed(1)} °C</p>
+                `;
+            } catch (error) {
+                document.getElementById('readings').innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+            }
+        }
+
+        async function fetchSettings() {
+            try {
+                const response = await fetch(`${apiBaseUrl}/settings`);
+                if (!response.ok) throw new Error('Failed to fetch settings');
+                const data = await response.json();
+                document.getElementById('settings').innerHTML = `
+                    <p><strong>Fan Speed:</strong> ${data.FanSpeed}</p>
+                    <p><strong>Desired Room Temperature:</strong> ${data.DesiredRoomTemperature.toFixed(1)} °C</p>
+                    <p><strong>Desired DHW Temperature:</strong> ${data.DesiredDHWTemperature.toFixed(1)} °C</p>
+                    <p><strong>DHW Production Paused:</strong> ${data.DHWProductionPaused}</p>
+                    <p><strong>DHW Production Pause Duration:</strong> ${data.DHWProductionPauseDuration} days</p>
+                    <p><strong>Central Heating Paused:</strong> ${data.CentralHeatingPaused}</p>
+                    <p><strong>Central Heating Pause Duration:</strong> ${data.CentralHeatingPauseDuration} days</p>
+                    <p><strong>Central Heating Is On:</strong> ${data.CentralHeatingIsOn}</p>
+                    <p><strong>Ventilation Mode:</strong> ${data.VentilationMode === 0 ? 'Auto' : data.VentilationMode === 1 ? 'Cool' : 'Heat'}</p>
+                    <p><strong>Ventilation On Pause:</strong> ${data.VentilationOnPause}</p>
+                    <p><strong>Setpoint Supply Temperature:</strong> ${data.SetpointSupplyTemperature.toFixed(1)} °C</p>
+                `;
+                document.getElementById('fanSpeed').value = data.FanSpeed || '';
+                document.getElementById('desiredRoomTemperature').value = data.DesiredRoomTemperature || '';
+                document.getElementById('desiredDHWTemperature').value = data.DesiredDHWTemperature || '';
+                document.getElementById('dhwProductionPaused').checked = data.DHWProductionPaused;
+                document.getElementById('dhwProductionPauseDuration').value = data.DHWProductionPauseDuration || '';
+                document.getElementById('centralHeatingPaused').checked = data.CentralHeatingPaused;
+                document.getElementById('centralHeatingPauseDuration').value = data.CentralHeatingPauseDuration || '';
+                document.getElementById('centralHeatingIsOn').checked = data.CentralHeatingIsOn;
+                document.getElementById('ventilationMode').value = data.VentilationMode || 0;
+                document.getElementById('ventilationOnPause').checked = data.VentilationOnPause;
+                document.getElementById('setpointSupplyTemperature').value = data.SetpointSupplyTemperature || '';
+            } catch (error) {
+                document.getElementById('settings').innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+            }
+        }
+
+        async function fetchConfig() {
+            try {
+                const response = await fetch(`${apiBaseUrl}/config`);
+                if (!response.ok) throw new Error('Failed to fetch config');
+                const data = await response.json();
+                document.getElementById('config').innerHTML = `
+                    <p><strong>Auto Save Power Mode:</strong> ${data.isAutoSavePowerMode}</p>
+                    <p><strong>Run Hours:</strong> ${data.runHours}</p>
+                    <p><strong>Must Heat Temperature Difference:</strong> ${data.mustHeatTemperatureDifference} °C</p>
+                    <p><strong>Stop Heat Temperature Difference:</strong> ${data.stopHeatTemperatureDifference} °C</p>
+                `;
+                document.getElementById('isAutoSavePowerMode').checked = data.isAutoSavePowerMode;
+                document.getElementById('runHours').value = data.runHours || '';
+                document.getElementById('mustHeatTemperatureDifference').value = data.mustHeatTemperatureDifference || '';
+                document.getElementById('stopHeatTemperatureDifference').value = data.stopHeatTemperatureDifference || '';
+            } catch (error) {
+                document.getElementById('config').innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+            }
+        }
+
+        document.getElementById('settings-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formMessage = document.getElementById('settings-message');
+            formMessage.classList.add('hidden');
+
+            const settings = {
+                FanSpeed: parseInt(document.getElementById('fanSpeed').value) || undefined,
+                DesiredRoomTemperature: parseFloat(document.getElementById('desiredRoomTemperature').value) || undefined,
+                DesiredDHWTemperature: parseFloat(document.getElementById('desiredDHWTemperature').value) || undefined,
+                DHWProductionPaused: document.getElementById('dhwProductionPaused').checked,
+                DHWProductionPauseDuration: parseInt(document.getElementById('dhwProductionPauseDuration').value) || undefined,
+                CentralHeatingPaused: document.getElementById('centralHeatingPaused').checked,
+                CentralHeatingPauseDuration: parseInt(document.getElementById('centralHeatingPauseDuration').value) || undefined,
+                CentralHeatingIsOn: document.getElementById('centralHeatingIsOn').checked,
+                VentilationMode: parseInt(document.getElementById('ventilationMode').value) || undefined,
+                VentilationOnPause: document.getElementById('ventilationOnPause').checked,
+                SetpointSupplyTemperature: parseFloat(document.getElementById('setpointSupplyTemperature').value) || undefined
+            };
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/settings`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                if (!response.ok) throw new Error('Failed to update settings');
+                const result = await response.json();
+                formMessage.classList.remove('hidden', 'text-red-600');
+                formMessage.classList.add('text-green-600');
+                formMessage.textContent = result.message;
+                await fetchSettings();
+            } catch (error) {
+                formMessage.classList.remove('hidden', 'text-green-600');
+                formMessage.classList.add('text-red-600');
+                formMessage.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        document.getElementById('config-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formMessage = document.getElementById('config-message');
+            formMessage.classList.add('hidden');
+
+            const config = {
+                isAutoSavePowerMode: document.getElementById('isAutoSavePowerMode').checked,
+                runHours: parseInt(document.getElementById('runHours').value) || undefined,
+                mustHeatTemperatureDifference: parseInt(document.getElementById('mustHeatTemperatureDifference').value) || undefined,
+                stopHeatTemperatureDifference: parseInt(document.getElementById('stopHeatTemperatureDifference').value) || undefined
+            };
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                if (!response.ok) throw new Error('Failed to update config');
+                const result = await response.json();
+                formMessage.classList.remove('hidden', 'text-red-600');
+                formMessage.classList.add('text-green-600');
+                formMessage.textContent = result.message;
+                await fetchConfig();
+            } catch (error) {
+                formMessage.classList.remove('hidden', 'text-green-600');
+                formMessage.classList.add('text-red-600');
+                formMessage.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        document.getElementById('priceFile').addEventListener('change', handleFileUpload);
+
+        // Fetch data on load and every 10 seconds
+        fetchReadings();
+        fetchSettings();
+        fetchConfig();
+        fetchPrices();
+        setInterval(fetchReadings, 60000);
+        setInterval(fetchSettings, 60000);
+        setInterval(fetchConfig, 60000);
+        setInterval(fetchPrices, 60000); // Update prices every minute
+    </script>
+</body>
+</html>
